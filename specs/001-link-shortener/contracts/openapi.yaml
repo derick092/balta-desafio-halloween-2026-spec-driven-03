@@ -1,0 +1,215 @@
+openapi: 3.1.0
+info:
+  title: Link Shortener API
+  version: 1.0.0
+  description: Create short links, redirect through them, and publicly inspect their accumulated access counts.
+servers:
+  - url: https://{publicOrigin}
+    variables:
+      publicOrigin:
+        default: localhost:5001
+paths:
+  /api/links:
+    post:
+      operationId: createLink
+      summary: Create a short link
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateLinkRequest"
+            example:
+              destinationUrl: https://example.com/articles/long-path
+              code: R3ADAB7
+              expiresAt: "2027-01-01T00:00:00Z"
+      responses:
+        "201":
+          description: The short link was created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreateLinkResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "409":
+          description: The requested custom code is already in use.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "503":
+          description: A generated-code collision could not be resolved after bounded retries.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "500":
+          description: An unexpected persistence or server failure occurred.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /{code}:
+    get:
+      operationId: redirectByCode
+      summary: Follow a short link
+      parameters:
+        - $ref: "#/components/parameters/Code"
+      responses:
+        "302":
+          description: The access was counted and the client should follow this temporary redirect.
+          headers:
+            Location:
+              required: true
+              schema:
+                type: string
+                format: uri
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "410":
+          description: The link has expired and was not counted.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "503":
+          description: The counter is exhausted or transient database contention retries were exhausted; no redirect occurred.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "500":
+          description: An unexpected persistence or server failure occurred; no redirect occurred.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /api/links/{code}/stats:
+    get:
+      operationId: getLinkStats
+      summary: Read a link's public access count
+      description: No authentication or management key is required. Expired links remain queryable.
+      parameters:
+        - $ref: "#/components/parameters/Code"
+      responses:
+        "200":
+          description: Current accumulated statistics for the link.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LinkStats"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          description: An unexpected persistence or server failure occurred.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+components:
+  parameters:
+    Code:
+      name: code
+      in: path
+      required: true
+      description: Case-insensitive ASCII alphanumeric code, normalized to uppercase.
+      schema:
+        type: string
+        minLength: 4
+        maxLength: 20
+        pattern: "^[A-HJ-KM-NP-Z2-9a-hj-km-np-z]{4,20}$"
+  responses:
+    BadRequest:
+      description: Invalid request; details are returned in Portuguese.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/ProblemDetails"
+    NotFound:
+      description: No link exists for this code.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/ProblemDetails"
+  schemas:
+    CreateLinkRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - destinationUrl
+      properties:
+        destinationUrl:
+          type: string
+          format: uri
+          maxLength: 2048
+          description: Must be an absolute HTTP or HTTPS URL.
+        code:
+          type: string
+          minLength: 4
+          maxLength: 20
+          pattern: "^[A-HJ-KM-NP-Z2-9a-hj-km-np-z]{4,20}$"
+          description: Optional custom code using the non-ambiguous alphanumeric alphabet.
+        expiresAt:
+          type:
+            - string
+            - "null"
+          format: date-time
+          description: Optional ISO 8601 instant; past instants are rejected.
+    CreateLinkResponse:
+      type: object
+      required:
+        - code
+        - shortUrl
+        - destinationUrl
+        - expiresAt
+      properties:
+        code:
+          type: string
+          minLength: 4
+          maxLength: 20
+        shortUrl:
+          type: string
+          format: uri
+        destinationUrl:
+          type: string
+          format: uri
+        expiresAt:
+          type:
+            - string
+            - "null"
+          format: date-time
+    LinkStats:
+      type: object
+      required:
+        - code
+        - clickCount
+        - expiresAt
+      properties:
+        code:
+          type: string
+        clickCount:
+          type: integer
+          format: int64
+          minimum: 0
+        expiresAt:
+          type:
+            - string
+            - "null"
+          format: date-time
+    ProblemDetails:
+      type: object
+      description: RFC 9457-style error response with a Portuguese title and detail.
+      properties:
+        type:
+          type: string
+          format: uri
+        title:
+          type: string
+        status:
+          type: integer
+        detail:
+          type: string
+        instance:
+          type: string
+          format: uri-reference

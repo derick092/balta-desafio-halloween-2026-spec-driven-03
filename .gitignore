@@ -1,0 +1,13 @@
+bin/
+obj/
+.vs/
+.idea/
+*.user
+*.suo
+packages/
+*.db
+*.db-shm
+*.db-wal
+*.log
+*.tmp
+Thumbs.db
